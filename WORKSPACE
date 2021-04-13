@@ -2,6 +2,15 @@ workspace(name = "mediapipe")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
+# -----------------------------------------------------
+#                       FrameLand
+# -----------------------------------------------------
+local_repository(
+    name = "frameland",
+    path = "../FrameLand/",
+)
+
+
 http_archive(
     name = "bazel_skylib",
     type = "tar.gz",
@@ -51,6 +60,31 @@ rules_foreign_cc_dependencies()
 
 # This is used to select all contents of the archives for CMake-based packages to give CMake access to them.
 all_content = """filegroup(name = "all", srcs = glob(["**"]), visibility = ["//visibility:public"])"""
+
+
+# ---------------------------------------------------
+#                       gRPC
+#
+#   This section SHOULD stay at this position in
+#   this WORKSPACE config file because the functions
+#   grpc_deps() and grpc_extra_deps conflict with
+#   rules_cc and rules_foreign_cc
+# ---------------------------------------------------
+http_archive(
+    name = "com_github_grpc_grpc",
+    urls = [
+        "https://github.com/grpc/grpc/archive/3e53dbe8213137d2c731ecd4d88ebd2948941d75.tar.gz",
+    ],
+    strip_prefix = "grpc-3e53dbe8213137d2c731ecd4d88ebd2948941d75",
+)
+
+load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
+grpc_deps()
+
+load("@com_github_grpc_grpc//bazel:grpc_extra_deps.bzl", "grpc_extra_deps")
+grpc_extra_deps()
+
+
 
 # GoogleTest/GoogleMock framework. Used by most unit-tests.
 # Last updated 2020-06-30.
