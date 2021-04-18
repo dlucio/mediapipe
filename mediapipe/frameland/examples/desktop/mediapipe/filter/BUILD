@@ -1,6 +1,14 @@
 package(default_visibility = ["//visibility:public"])
 
 cc_binary(
+    name = "text_processing_server",
+    srcs = ["text_processing/text_processing_server.cc"],
+    deps = [
+        "//mediapipe/frameland/component:frameland_mediapipe_service",
+    ]
+)
+
+cc_binary(
     name = "videostream_client",
     srcs = [
         "videostream_client.cc"
