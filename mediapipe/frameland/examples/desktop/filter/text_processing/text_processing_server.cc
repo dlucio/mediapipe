@@ -1,4 +1,4 @@
-#include "mediapipe/frameland/component/frameland_mediapipe.h"
+#include "mediapipe/frameland/packages/textpack/mediapipe_text_processing_service.h"
 
 int main(int argc, char **argv)
 {

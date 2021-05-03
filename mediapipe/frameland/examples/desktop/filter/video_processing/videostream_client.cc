@@ -5,7 +5,7 @@
 using frameland::Image;
 using frameland::ImageProcessing;
 using frameland::component::client::DesktopImageFilter;
-using frameland::component::opencv::DesktopImageIOCv;
+using frameland::component::io::DesktopImageIoCv;
 
 int main()
 {
@@ -15,7 +15,7 @@ int main()
     std::string server_address = address + ":" + port;
     std::cout << "Client querying server address: " << server_address << std::endl;
 
-    DesktopImageIOCv ioCv;
+    DesktopImageIoCv ioCv;
     DesktopImageFilter proc(grpc::CreateChannel(
         server_address, grpc::InsecureChannelCredentials()));
 
