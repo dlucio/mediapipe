@@ -11,6 +11,8 @@
 #include "absl/flags/parse.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image_frame.h"
+#include "mediapipe/framework/formats/landmark.pb.h"
+#include "mediapipe/framework/formats/rect.pb.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
 #include "mediapipe/framework/port/file_helpers.h"
 #include "mediapipe/framework/port/logging.h"
@@ -24,7 +26,8 @@
 
 constexpr char kInputStream[] = "input_video";
 constexpr char kOutputStream[] = "output_video";
-constexpr char kWindowName[] = "MediaPipe";
+constexpr char kHandCountOutputStream[] = "hand_count";
+constexpr char kLandmarksOutputStream[] = "landmarks";
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -40,13 +43,20 @@ using namespace cv;
 
 class MediaPipeHands {
     mediapipe::CalculatorGraph graph;
-    mediapipe::OutputStreamPoller *poller;
+    std::unique_ptr<mediapipe::OutputStreamPoller> outputVideoPoller;
+    std::unique_ptr<mediapipe::OutputStreamPoller> outputLandmarksPoller;
+    std::unique_ptr<mediapipe::OutputStreamPoller> outputHandCountPoller;
+    int prev_face_count;
 
 public:
     MediaPipeHands(std::string calculator_graph_config_file = 
-                    "mediapipe/graphs/hand_tracking/hand_tracking_desktop_live.pbtxt")
+                    "mediapipe/frameland/graphs/hand_tracking_desktop_live.pbtxt")
+                    // "mediapipe/graphs/holistic_tracking/holistic_tracking_cpu.pbtxt")
+                    // "mediapipe/graphs/pose_tracking/upper_body_pose_tracking_cpu.pbtxt")
+                    // "mediapipe/graphs/hand_tracking/hand_tracking_desktop_live.pbtxt")
     {
-        Setup(calculator_graph_config_file);
+        LOG(INFO) << Setup(calculator_graph_config_file);
+        prev_face_count = -1;
     }
 
     virtual ~MediaPipeHands()
@@ -56,7 +66,7 @@ public:
 
     absl::Status RunMPPGraph(cv::Mat &camera_frame_raw)
     {
-        LOG(INFO) << "Start grabbing and processing frames.";
+        // LOG(INFO) << "Start grabbing and processing frames.";
 
         cv::Mat camera_frame;
         cv::cvtColor(camera_frame_raw, camera_frame, cv::COLOR_BGR2RGB);
@@ -76,11 +86,48 @@ public:
             kInputStream, ::mediapipe::Adopt(input_frame.release())
                               .At(::mediapipe::Timestamp(frame_timestamp_us))));
 
+        
+        ::mediapipe::Packet handCountPacket;
+        if (!outputHandCountPoller->Next(&handCountPacket))
+        {
+            absl::string_view msg("Error when outputHandCountPoller try to get the result pack from graph!");
+        }
+        auto &hand_count = handCountPacket.Get<int>();
+
+        if (hand_count != 0)
+        {
+            LOG(INFO) << "Found hand count : " << hand_count;
+
+            ::mediapipe::Packet landmarksPacket;
+            if (!outputLandmarksPoller->Next(&landmarksPacket))
+            {
+                absl::string_view msg("Error when outputLandmarksPoller try to get the result pack from graph!");
+            }
+            auto &multi_hand_landmarks = landmarksPacket.Get<std::vector<::mediapipe::NormalizedLandmarkList>>();
+
+            // Tip: https://gist.github.com/eknight7/d4a57504c8f866fc80c0eb2c61ff6b4f
+            LOG(INFO) << "#Multi Hand landmarks: " << multi_hand_landmarks.size();
+            int hand_id = 0;
+            for (const auto &single_hand_landmarks : multi_hand_landmarks)
+            {
+                ++hand_id;
+                LOG(INFO) << "Hand [" << hand_id << "]:";
+                for (int i = 0; i < single_hand_landmarks.landmark_size(); ++i)
+                {
+                    const auto &landmark = single_hand_landmarks.landmark(i);
+                    LOG(INFO) << "\tLandmark [" << i << "]: ("
+                              << landmark.x() << ", "
+                              << landmark.y() << ", "
+                              << landmark.z() << ")";
+                }
+            }
+        }
+
         // Get the graph result packet, or stop if that fails.
         ::mediapipe::Packet packet;
-        if (!poller->Next(&packet))
+        if (!outputVideoPoller->Next(&packet))
         {
-            absl::string_view msg("Error when poller try to get the result pack from graph!");
+            absl::string_view msg("Error when outputVideoPoller try to get the result pack from graph!");
             return absl::Status(absl::StatusCode::kUnknown, msg);
         }
         auto &output_frame_mat_view = packet.Get<::mediapipe::ImageFrame>();
@@ -88,9 +135,7 @@ public:
         // Convert back to opencv for display or saving.
         cv::Mat output_frame_mat = ::mediapipe::formats::MatView(&output_frame_mat_view);
         cv::cvtColor(output_frame_mat, output_frame_mat, cv::COLOR_RGB2BGR);
-
         output_frame_mat.copyTo(camera_frame_raw);
-
 
         return absl::Status();
     }
@@ -112,9 +157,20 @@ protected:
         LOG(INFO) << "Initialize the calculator graph.";
         MP_RETURN_IF_ERROR(graph.Initialize(config));
 
+        ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller poller,
+                        graph.AddOutputStreamPoller(kLandmarksOutputStream));
+        // Tip: https://github.com/google/mediapipe/issues/1537
+        outputLandmarksPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
+
+        ASSIGN_OR_RETURN(poller,
+                   graph.AddOutputStreamPoller(kHandCountOutputStream));
+        outputHandCountPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
+
+        ASSIGN_OR_RETURN(poller,
+                   graph.AddOutputStreamPoller(kOutputStream));
+        outputVideoPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
+
         LOG(INFO) << "Start running the calculator graph.";
-        ASSIGN_OR_RETURN(*poller,
-                        graph.AddOutputStreamPoller(kOutputStream));
         MP_RETURN_IF_ERROR(graph.StartRun({}));
 
         return absl::Status();
@@ -134,8 +190,14 @@ namespace frameland::mediapipe::landpack
 
     class HandDetectionMediaPipeServiceImpl final : public HandDetection::Service
     {
+    public:
+        HandDetectionMediaPipeServiceImpl()
+            : _mediapipeHands( new MediaPipeHands)
+        {}
 
-        MediaPipeHands _mediapipeHands;
+    private:
+
+        std::auto_ptr<MediaPipeHands> _mediapipeHands;
 
         ::grpc::Status DetectAndDraw(ServerContext *context, const HandOptions *request, frameland::Image *reply) override
         {
@@ -150,7 +212,8 @@ namespace frameland::mediapipe::landpack
             std::memcpy(frame.data, request->image().data().c_str(), sz * sizeof(uchar));
 
             // Detect and draw
-            _mediapipeHands.RunMPPGraph(frame);
+            absl::Status status =  _mediapipeHands->RunMPPGraph(frame);
+            // LOG(INFO) << status;
 
             // Update reply image data with the processed frame.
             const std::string data((const char *)frame.data, sz);
