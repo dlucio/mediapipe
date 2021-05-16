@@ -13,6 +13,10 @@ output_stream: "output_video"
 # landmarks. (std::vector<NormalizedLandmarkList>)
 output_stream: "landmarks"
 
+# Handedness of the detected hand (i.e. is hand left or right).
+# (std::vector<ClassificationList>)
+output_stream: "handedness"
+
 # (int)
 output_stream: "HAND_COUNT_FROM_LANDMARKS:hand_count"
 

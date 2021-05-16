@@ -4,6 +4,7 @@
 
 #include "src/frameland.h"
 #include "mediapipe_landmarks.h"
+#include "mediapipe/framework/formats/classification.pb.h"
 
 
 using grpc::Server;
@@ -20,9 +21,11 @@ using frameland::HandsReply;
 
 constexpr char kHandCountOutputStream[] = "hand_count";
 constexpr char kLandmarksOutputStream[] = "landmarks";
+constexpr char kHandednessOutputStream[] = "handedness";
 
 class MediaPipeHands : public MediaPipeLandmarks
 {
+    std::unique_ptr<mediapipe::OutputStreamPoller> _outputHandednessPoller;
     std::unique_ptr<mediapipe::OutputStreamPoller> _outputLandmarksPoller;
     std::unique_ptr<mediapipe::OutputStreamPoller> _outputHandCountPoller;
 
@@ -41,6 +44,7 @@ public:
 
     absl::Status RunMPPGraph(
         cv::Mat &camera_frame_raw, 
+        std::vector<::mediapipe::ClassificationList> &multi_handedness,
         std::vector<::mediapipe::NormalizedLandmarkList> &multi_hand_landmarks)
     {
         MP_RETURN_IF_ERROR(MediaPipeLandmarks::RunMPPGraph(camera_frame_raw));
@@ -54,6 +58,14 @@ public:
 
         if (hand_count != 0)
         {
+            ::mediapipe::Packet handednessPacket;
+            if (!_outputHandednessPoller->Next(&handednessPacket))
+            {
+                absl::string_view msg("Error when _outputHandednessPoller try to get the result pack from _graph!");
+            }
+            multi_handedness = handednessPacket.Get<std::vector<::mediapipe::ClassificationList>>();
+            
+
             ::mediapipe::Packet landmarksPacket;
             if (!_outputLandmarksPoller->Next(&landmarksPacket))
             {
@@ -71,8 +83,12 @@ protected:
         MediaPipeLandmarks::Setup(calculator_graph_config_file, false);
 
         ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller poller,
-                        _graph.AddOutputStreamPoller(kLandmarksOutputStream));
+                        _graph.AddOutputStreamPoller(kHandednessOutputStream));
         // Tip: https://github.com/google/mediapipe/issues/1537
+        _outputHandednessPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
+
+        ASSIGN_OR_RETURN(poller,
+                        _graph.AddOutputStreamPoller(kLandmarksOutputStream));
         _outputLandmarksPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
 
         ASSIGN_OR_RETURN(poller,
@@ -124,20 +140,26 @@ namespace frameland::mediapipe::landpack
             cv::Mat frame = cv::Mat(cv::Size(w, h), CV_8UC(c));
             std::memcpy(frame.data, request->image().data().c_str(), sz * sizeof(uchar));
 
+            auto multi_handedness = std::vector<::mediapipe::ClassificationList>();
             auto multi_hand_landmarks = std::vector<::mediapipe::NormalizedLandmarkList>();
             
-            absl::Status status =  _mediapipeHands->RunMPPGraph(frame, multi_hand_landmarks);
+            absl::Status status =  _mediapipeHands->RunMPPGraph(frame, multi_handedness, multi_hand_landmarks);
             // LOG(INFO) << status;
 
+
+            // Populating hands and handnesses
             {
                 Hands hands;
 
                 int hand_id = 0;
                 for (const auto &single_hand_landmarks : multi_hand_landmarks)
                 {
-                    ++hand_id;
 
                     Hand *hand = hands.add_hand();
+
+                    const auto &classification = multi_handedness[hand_id].classification(0);
+                    hand->set_label(classification.label());
+                    hand->set_score(classification.score());
 
                     for (int i = 0; i < single_hand_landmarks.landmark_size(); ++i)
                     {
