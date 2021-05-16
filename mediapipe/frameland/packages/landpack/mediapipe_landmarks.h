@@ -32,7 +32,7 @@ public:
         Shutdown();
     }
 
-    absl::Status RunMPPGraph(cv::Mat &camera_frame_raw)
+    virtual absl::Status RunMPPGraph(cv::Mat &camera_frame_raw)
     {
         // LOG(INFO) << "Start grabbing and processing frames.";
 

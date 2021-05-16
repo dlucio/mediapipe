@@ -12,8 +12,11 @@ using grpc::ServerContext;
 using grpc::Status;
 
 using frameland::Hand;
+using frameland::Hands;
+using frameland::Landmark;
 using frameland::HandDetection;
-using frameland::HandOptions;
+using frameland::HandsRequest;
+using frameland::HandsReply;
 
 constexpr char kHandCountOutputStream[] = "hand_count";
 constexpr char kLandmarksOutputStream[] = "landmarks";
@@ -33,6 +36,14 @@ public:
     absl::Status RunMPPGraph(cv::Mat &camera_frame_raw)
     {
         MP_RETURN_IF_ERROR(MediaPipeLandmarks::RunMPPGraph(camera_frame_raw));
+        return absl::Status();
+    }
+
+    absl::Status RunMPPGraph(
+        cv::Mat &camera_frame_raw, 
+        std::vector<::mediapipe::NormalizedLandmarkList> &multi_hand_landmarks)
+    {
+        MP_RETURN_IF_ERROR(MediaPipeLandmarks::RunMPPGraph(camera_frame_raw));
 
         ::mediapipe::Packet handCountPacket;
         if (!_outputHandCountPoller->Next(&handCountPacket))
@@ -43,31 +54,12 @@ public:
 
         if (hand_count != 0)
         {
-            LOG(INFO) << "Found hand count : " << hand_count;
-
             ::mediapipe::Packet landmarksPacket;
             if (!_outputLandmarksPoller->Next(&landmarksPacket))
             {
                 absl::string_view msg("Error when _outputLandmarksPoller try to get the result pack from _graph!");
             }
-            auto &multi_hand_landmarks = landmarksPacket.Get<std::vector<::mediapipe::NormalizedLandmarkList>>();
-
-            // Tip: https://gist.github.com/eknight7/d4a57504c8f866fc80c0eb2c61ff6b4f
-            LOG(INFO) << "#Multi Hand landmarks: " << multi_hand_landmarks.size();
-            int hand_id = 0;
-            for (const auto &single_hand_landmarks : multi_hand_landmarks)
-            {
-                ++hand_id;
-                LOG(INFO) << "Hand [" << hand_id << "]:";
-                for (int i = 0; i < single_hand_landmarks.landmark_size(); ++i)
-                {
-                    const auto &landmark = single_hand_landmarks.landmark(i);
-                    LOG(INFO) << "\tLandmark [" << i << "]: ("
-                              << landmark.x() << ", "
-                              << landmark.y() << ", "
-                              << landmark.z() << ")";
-                }
-            }
+            multi_hand_landmarks = landmarksPacket.Get<std::vector<::mediapipe::NormalizedLandmarkList>>();
         }
 
         return absl::Status();
@@ -109,9 +101,20 @@ namespace frameland::mediapipe::landpack
 
         std::auto_ptr<MediaPipeHands> _mediapipeHands;
 
-        ::grpc::Status DetectAndDraw(ServerContext *context, const HandOptions *request, frameland::Image *reply) override
+        ::grpc::Status DetectAndDraw(ServerContext *context, const HandsRequest *request, HandsReply *reply) override
         {
+            Detect(request, reply);
+            return Status::OK;
+        }
 
+        ::grpc::Status GetHands(ServerContext *context, const HandsRequest *request, HandsReply *reply)
+        {
+            Detect(request, reply, false);
+            return Status::OK;
+        }
+
+        void Detect(const HandsRequest *request, HandsReply *reply, bool fillImage = true)
+        {
             const int w = request->image().width();
             const int h = request->image().height();
             const int c = request->image().channels();
@@ -121,20 +124,55 @@ namespace frameland::mediapipe::landpack
             cv::Mat frame = cv::Mat(cv::Size(w, h), CV_8UC(c));
             std::memcpy(frame.data, request->image().data().c_str(), sz * sizeof(uchar));
 
-            // Detect and draw
-            absl::Status status =  _mediapipeHands->RunMPPGraph(frame);
+            auto multi_hand_landmarks = std::vector<::mediapipe::NormalizedLandmarkList>();
+            
+            absl::Status status =  _mediapipeHands->RunMPPGraph(frame, multi_hand_landmarks);
             // LOG(INFO) << status;
 
-            // Update reply image data with the processed frame.
-            const std::string data((const char *)frame.data, sz);
-            reply->set_data(data);
-            reply->set_channels(frame.channels());
-            reply->set_width(request->image().width());
-            reply->set_height(request->image().height());
+            {
+                Hands hands;
 
+                int hand_id = 0;
+                for (const auto &single_hand_landmarks : multi_hand_landmarks)
+                {
+                    ++hand_id;
+
+                    Hand *hand = hands.add_hand();
+
+                    for (int i = 0; i < single_hand_landmarks.landmark_size(); ++i)
+                    {
+                        const auto &mediapipeLandmark = single_hand_landmarks.landmark(i);
+                        
+                        frameland::Landmark *landmark = hand->add_landmark();
+                        landmark->set_x(mediapipeLandmark.x());
+                        landmark->set_y(mediapipeLandmark.y());
+                        landmark->set_z(mediapipeLandmark.z());
+                    }
+
+                }
+
+                Hands *replyHands = reply->mutable_hands();
+                replyHands->CopyFrom(hands);
+            }
+
+
+            if (fillImage)
+            {
+                // Update reply image data with the processed frame.
+                const std::string data((const char *)frame.data, sz);
+
+                frameland::Image image;
+                image.set_data(data);
+                image.set_channels(frame.channels());
+                image.set_width(request->image().width());
+                image.set_height(request->image().height());
+
+                // NOTE: Using this lines to avoid SEGFAULT
+                Image *replyImage = reply->mutable_image();
+                replyImage->CopyFrom(image);
+            }
+            
             frame.release();
-
-            return Status::OK;
         }
 
     };
