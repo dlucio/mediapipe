@@ -1,33 +1,10 @@
 #pragma once
 
-#include <iostream>
-#include <string>
-#include <cstdlib>
-#include <bits/stdc++.h>
-
 #include <grpcpp/grpcpp.h>
 
-#include "absl/flags/flag.h"
-#include "absl/flags/parse.h"
-#include "mediapipe/framework/calculator_framework.h"
-#include "mediapipe/framework/formats/image_frame.h"
-#include "mediapipe/framework/formats/landmark.pb.h"
-#include "mediapipe/framework/formats/rect.pb.h"
-#include "mediapipe/framework/formats/image_frame_opencv.h"
-#include "mediapipe/framework/port/file_helpers.h"
-#include "mediapipe/framework/port/logging.h"
-// #include "mediapipe/framework/port/opencv_highgui_inc.h"
-// #include "mediapipe/framework/port/opencv_imgproc_inc.h"
-// #include "mediapipe/framework/port/opencv_video_inc.h"
-#include "mediapipe/framework/port/parse_text_proto.h"
-#include "mediapipe/framework/port/status.h"
-
 #include "src/frameland.h"
+#include "mediapipe_landmarks.h"
 
-constexpr char kInputStream[] = "input_video";
-constexpr char kOutputStream[] = "output_video";
-constexpr char kHandCountOutputStream[] = "hand_count";
-constexpr char kLandmarksOutputStream[] = "landmarks";
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -38,59 +15,29 @@ using frameland::Hand;
 using frameland::HandDetection;
 using frameland::HandOptions;
 
-using namespace cv;
+constexpr char kHandCountOutputStream[] = "hand_count";
+constexpr char kLandmarksOutputStream[] = "landmarks";
 
-
-class MediaPipeHands {
-    mediapipe::CalculatorGraph graph;
-    std::unique_ptr<mediapipe::OutputStreamPoller> outputVideoPoller;
-    std::unique_ptr<mediapipe::OutputStreamPoller> outputLandmarksPoller;
-    std::unique_ptr<mediapipe::OutputStreamPoller> outputHandCountPoller;
-    int prev_face_count;
+class MediaPipeHands : public MediaPipeLandmarks
+{
+    std::unique_ptr<mediapipe::OutputStreamPoller> _outputLandmarksPoller;
+    std::unique_ptr<mediapipe::OutputStreamPoller> _outputHandCountPoller;
 
 public:
     MediaPipeHands(std::string calculator_graph_config_file = 
                     "mediapipe/frameland/graphs/hand_tracking_desktop_live.pbtxt")
-                    // "mediapipe/graphs/holistic_tracking/holistic_tracking_cpu.pbtxt")
-                    // "mediapipe/graphs/pose_tracking/upper_body_pose_tracking_cpu.pbtxt")
-                    // "mediapipe/graphs/hand_tracking/hand_tracking_desktop_live.pbtxt")
     {
         LOG(INFO) << Setup(calculator_graph_config_file);
-        prev_face_count = -1;
-    }
-
-    virtual ~MediaPipeHands()
-    {
-        Shutdown();
     }
 
     absl::Status RunMPPGraph(cv::Mat &camera_frame_raw)
     {
-        // LOG(INFO) << "Start grabbing and processing frames.";
+        MP_RETURN_IF_ERROR(MediaPipeLandmarks::RunMPPGraph(camera_frame_raw));
 
-        cv::Mat camera_frame;
-        cv::cvtColor(camera_frame_raw, camera_frame, cv::COLOR_BGR2RGB);
-        // cv::flip(camera_frame, camera_frame, /*flipcode=HORIZONTAL*/ 1);
-
-        // Wrap Mat into an ImageFrame.
-        auto input_frame = absl::make_unique<::mediapipe::ImageFrame>(
-            ::mediapipe::ImageFormat::SRGB, camera_frame.cols, camera_frame.rows,
-            ::mediapipe::ImageFrame::kDefaultAlignmentBoundary);
-        cv::Mat input_frame_mat = ::mediapipe::formats::MatView(input_frame.get());
-        camera_frame.copyTo(input_frame_mat);
-
-        // Send image packet into the graph.
-        size_t frame_timestamp_us =
-            (double)cv::getTickCount() / (double)cv::getTickFrequency() * 1e6;
-        MP_RETURN_IF_ERROR(graph.AddPacketToInputStream(
-            kInputStream, ::mediapipe::Adopt(input_frame.release())
-                              .At(::mediapipe::Timestamp(frame_timestamp_us))));
-
-        
         ::mediapipe::Packet handCountPacket;
-        if (!outputHandCountPoller->Next(&handCountPacket))
+        if (!_outputHandCountPoller->Next(&handCountPacket))
         {
-            absl::string_view msg("Error when outputHandCountPoller try to get the result pack from graph!");
+            absl::string_view msg("Error when _outputHandCountPoller try to get the result pack from _graph!");
         }
         auto &hand_count = handCountPacket.Get<int>();
 
@@ -99,9 +46,9 @@ public:
             LOG(INFO) << "Found hand count : " << hand_count;
 
             ::mediapipe::Packet landmarksPacket;
-            if (!outputLandmarksPoller->Next(&landmarksPacket))
+            if (!_outputLandmarksPoller->Next(&landmarksPacket))
             {
-                absl::string_view msg("Error when outputLandmarksPoller try to get the result pack from graph!");
+                absl::string_view msg("Error when _outputLandmarksPoller try to get the result pack from _graph!");
             }
             auto &multi_hand_landmarks = landmarksPacket.Get<std::vector<::mediapipe::NormalizedLandmarkList>>();
 
@@ -123,64 +70,27 @@ public:
             }
         }
 
-        // Get the graph result packet, or stop if that fails.
-        ::mediapipe::Packet packet;
-        if (!outputVideoPoller->Next(&packet))
-        {
-            absl::string_view msg("Error when outputVideoPoller try to get the result pack from graph!");
-            return absl::Status(absl::StatusCode::kUnknown, msg);
-        }
-        auto &output_frame_mat_view = packet.Get<::mediapipe::ImageFrame>();
-
-        // Convert back to opencv for display or saving.
-        cv::Mat output_frame_mat = ::mediapipe::formats::MatView(&output_frame_mat_view);
-        cv::cvtColor(output_frame_mat, output_frame_mat, cv::COLOR_RGB2BGR);
-        output_frame_mat.copyTo(camera_frame_raw);
-
         return absl::Status();
     }
 
 protected:
     absl::Status Setup(std::string calculator_graph_config_file)
     {
-        std::string calculator_graph_config_contents;
-        MP_RETURN_IF_ERROR(mediapipe::file::GetContents(
-            calculator_graph_config_file,
-            &calculator_graph_config_contents));
-
-        LOG(INFO) << "Get calculator graph config contents: "
-                  << calculator_graph_config_contents;
-        mediapipe::CalculatorGraphConfig config =
-            mediapipe::ParseTextProtoOrDie<mediapipe::CalculatorGraphConfig>(
-                calculator_graph_config_contents);
-
-        LOG(INFO) << "Initialize the calculator graph.";
-        MP_RETURN_IF_ERROR(graph.Initialize(config));
+        MediaPipeLandmarks::Setup(calculator_graph_config_file, false);
 
         ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller poller,
-                        graph.AddOutputStreamPoller(kLandmarksOutputStream));
+                        _graph.AddOutputStreamPoller(kLandmarksOutputStream));
         // Tip: https://github.com/google/mediapipe/issues/1537
-        outputLandmarksPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
+        _outputLandmarksPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
 
         ASSIGN_OR_RETURN(poller,
-                   graph.AddOutputStreamPoller(kHandCountOutputStream));
-        outputHandCountPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
+                   _graph.AddOutputStreamPoller(kHandCountOutputStream));
+        _outputHandCountPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
 
-        ASSIGN_OR_RETURN(poller,
-                   graph.AddOutputStreamPoller(kOutputStream));
-        outputVideoPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
-
-        LOG(INFO) << "Start running the calculator graph.";
-        MP_RETURN_IF_ERROR(graph.StartRun({}));
+        LOG(INFO) << "Start running the calculator _graph.";
+        MP_RETURN_IF_ERROR(_graph.StartRun({}));
 
         return absl::Status();
-    }
-
-    absl::Status Shutdown()
-    {
-        LOG(INFO) << "Shutting down.";
-        MP_RETURN_IF_ERROR(graph.CloseInputStream(kInputStream));
-        graph.WaitUntilDone();
     }
 
 };
@@ -192,7 +102,7 @@ namespace frameland::mediapipe::landpack
     {
     public:
         HandDetectionMediaPipeServiceImpl()
-            : _mediapipeHands( new MediaPipeHands)
+            : _mediapipeHands(new MediaPipeHands)
         {}
 
     private:
@@ -228,8 +138,6 @@ namespace frameland::mediapipe::landpack
         }
 
     };
-
-    // }
 
     void RunHandDetectionMediaPipeServer(
         std::string address = "0.0.0.0",
