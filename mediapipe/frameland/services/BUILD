@@ -9,7 +9,6 @@ cc_binary(
 
         "//mediapipe/graphs/hand_tracking:desktop_tflite_calculators",
         "//mediapipe/graphs/pose_tracking:pose_tracking_cpu_deps",
-        "//mediapipe/graphs/pose_tracking:upper_body_pose_tracking_cpu_deps",
         "//mediapipe/graphs/holistic_tracking:holistic_tracking_cpu_graph_deps",
     ]
 )
