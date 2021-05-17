@@ -15,6 +15,7 @@
 #
 
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 
 licenses(["notice"])
 
@@ -27,10 +28,28 @@ package_group(
     ],
 )
 
-exports_files([
-    "transitive_protos.bzl",
-    "encode_binary_proto.bzl",
-])
+bzl_library(
+    name = "transitive_protos_bzl",
+    srcs = [
+        "transitive_protos.bzl",
+    ],
+    visibility = ["//mediapipe/framework:__subpackages__"],
+)
+
+bzl_library(
+    name = "encode_binary_proto_bzl",
+    srcs = [
+        "encode_binary_proto.bzl",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "encode_binary_proto",
+    actual = ":encode_binary_proto_bzl",
+    deprecation = "Use encode_binary_proto_bzl",
+    visibility = ["//visibility:public"],
+)
 
 mediapipe_proto_library(
     name = "calculator_proto",
@@ -1619,6 +1638,8 @@ cc_test(
         ":calculator_contract_test_cc_proto",
         ":calculator_framework",
         ":graph_validation",
+        "//mediapipe/calculators/core:constant_side_packet_calculator",
+        "//mediapipe/calculators/core:default_side_packet_calculator",
         "//mediapipe/calculators/core:pass_through_calculator",
         "//mediapipe/framework:calculator_cc_proto",
         "//mediapipe/framework:packet_generator_cc_proto",

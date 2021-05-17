@@ -20,6 +20,7 @@ load(
     "mediapipe_binary_graph",
 )
 load("//mediapipe/framework:mediapipe_cc_test.bzl", "mediapipe_cc_test")
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 
 licenses(["notice"])
 
@@ -28,6 +29,30 @@ package(default_visibility = ["//visibility:private"])
 exports_files([
     "simple_subgraph_template.cc",
 ])
+
+bzl_library(
+    name = "mediapipe_graph_bzl",
+    srcs = [
+        "mediapipe_graph.bzl",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":build_defs_bzl",
+        "//mediapipe/framework:encode_binary_proto",
+        "//mediapipe/framework:transitive_protos_bzl",
+        "//mediapipe/framework/deps:expand_template_bzl",
+    ],
+)
+
+bzl_library(
+    name = "build_defs_bzl",
+    srcs = [
+        "build_defs.bzl",
+    ],
+    visibility = [
+        "//mediapipe/framework:__subpackages__",
+    ],
+)
 
 cc_library(
     name = "text_to_binary_graph",
@@ -656,6 +681,7 @@ cc_library(
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:status",
+        "//mediapipe/framework/tool:switch_container_cc_proto",
         "@com_google_absl//absl/strings",
     ],
     alwayslink = 1,
@@ -680,6 +706,7 @@ cc_library(
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:status",
+        "//mediapipe/framework/tool:switch_container_cc_proto",
         "@com_google_absl//absl/strings",
     ],
     alwayslink = 1,
@@ -744,5 +771,7 @@ cc_test(
 
 exports_files(
     ["build_defs.bzl"],
-    visibility = ["//mediapipe/framework:__subpackages__"],
+    visibility = [
+        "//mediapipe/framework:__subpackages__",
+    ],
 )
