@@ -144,8 +144,6 @@ namespace frameland::mediapipe::landpack
             auto multi_hand_landmarks = std::vector<::mediapipe::NormalizedLandmarkList>();
             
             absl::Status status =  _mediapipeHands->RunMPPGraph(frame, multi_handedness, multi_hand_landmarks);
-            // LOG(INFO) << status;
-
 
             // Populating hands and handnesses
             {
@@ -175,6 +173,8 @@ namespace frameland::mediapipe::landpack
 
                 Hands *replyHands = reply->mutable_hands();
                 replyHands->CopyFrom(hands);
+                
+                hand_id++;
             }
 
 
