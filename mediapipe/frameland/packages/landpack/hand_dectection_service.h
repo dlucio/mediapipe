@@ -22,12 +22,16 @@ using frameland::HandsReply;
 constexpr char kHandCountOutputStream[] = "hand_count";
 constexpr char kLandmarksOutputStream[] = "landmarks";
 constexpr char kHandednessOutputStream[] = "handedness";
+constexpr char kHandRectsOutputStream[] = "multi_hand_rects";
+constexpr char kPalmRectsOutputStream[] = "multi_palm_rects";
 
 class MediaPipeHands : public MediaPipeLandmarks
 {
     std::unique_ptr<mediapipe::OutputStreamPoller> _outputHandednessPoller;
     std::unique_ptr<mediapipe::OutputStreamPoller> _outputLandmarksPoller;
     std::unique_ptr<mediapipe::OutputStreamPoller> _outputHandCountPoller;
+    std::unique_ptr<mediapipe::OutputStreamPoller> _outputHandRectsPoller;
+    std::unique_ptr<mediapipe::OutputStreamPoller> _outputPalmRectsPoller;
 
 public:
     MediaPipeHands(std::string calculator_graph_config_file = 
@@ -45,7 +49,9 @@ public:
     absl::Status RunMPPGraph(
         cv::Mat &camera_frame_raw, 
         std::vector<::mediapipe::ClassificationList> &multi_handedness,
-        std::vector<::mediapipe::NormalizedLandmarkList> &multi_hand_landmarks)
+        std::vector<::mediapipe::NormalizedLandmarkList> &multi_hand_landmarks,
+        std::vector<::mediapipe::NormalizedRect> &multi_hand_rects,
+        std::vector<::mediapipe::NormalizedRect> &multi_palm_rects)
     {
         MP_RETURN_IF_ERROR(MediaPipeLandmarks::RunMPPGraph(camera_frame_raw));
 
@@ -72,6 +78,23 @@ public:
                 absl::string_view msg("Error when _outputLandmarksPoller try to get the result pack from _graph!");
             }
             multi_hand_landmarks = landmarksPacket.Get<std::vector<::mediapipe::NormalizedLandmarkList>>();
+
+
+            ::mediapipe::Packet handRectsPacket;
+            if (!_outputHandRectsPoller->Next(&handRectsPacket))
+            {
+                absl::string_view msg("Error when _outputHandRectsPoller try to get the result pack from _graph!");
+            }
+            multi_hand_rects = handRectsPacket.Get<std::vector<::mediapipe::NormalizedRect>>();
+
+
+            // NOTE: Disabled until to implement the calculator CountingNormalizedPalmRectVectorSizeCalculator
+            // ::mediapipe::Packet palmRectsPacket;
+            // if (!_outputPalmRectsPoller->Next(&palmRectsPacket))
+            // {
+            //     absl::string_view msg("Error when _outputPalmRectsPoller try to get the result pack from _graph!");
+            // }
+            // multi_palm_rects = palmRectsPacket.Get<std::vector<::mediapipe::NormalizedRect>>();
         }
 
         return absl::Status();
@@ -94,6 +117,14 @@ protected:
         ASSIGN_OR_RETURN(poller,
                    _graph.AddOutputStreamPoller(kHandCountOutputStream));
         _outputHandCountPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
+
+        ASSIGN_OR_RETURN(poller,
+                   _graph.AddOutputStreamPoller(kHandRectsOutputStream));
+        _outputHandRectsPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
+
+        ASSIGN_OR_RETURN(poller,
+                   _graph.AddOutputStreamPoller(kPalmRectsOutputStream));
+        _outputPalmRectsPoller = std::make_unique<mediapipe::OutputStreamPoller>(std::move(poller));
 
         LOG(INFO) << "Start running the calculator _graph.";
         MP_RETURN_IF_ERROR(_graph.StartRun({}));
@@ -142,8 +173,15 @@ namespace frameland::mediapipe::landpack
 
             auto multi_handedness = std::vector<::mediapipe::ClassificationList>();
             auto multi_hand_landmarks = std::vector<::mediapipe::NormalizedLandmarkList>();
+            auto multi_hand_rects = std::vector<::mediapipe::NormalizedRect>();
+            auto multi_palm_rects = std::vector<::mediapipe::NormalizedRect>();
             
-            absl::Status status =  _mediapipeHands->RunMPPGraph(frame, multi_handedness, multi_hand_landmarks);
+            absl::Status status =  _mediapipeHands->RunMPPGraph(
+                                        frame, 
+                                        multi_handedness, 
+                                        multi_hand_landmarks,
+                                        multi_hand_rects,
+                                        multi_palm_rects);
 
             // Populating hands and handnesses
             {
@@ -159,6 +197,25 @@ namespace frameland::mediapipe::landpack
                     hand->set_label(classification.label());
                     hand->set_score(classification.score());
 
+                    const auto &hand_rect = multi_hand_rects[hand_id];
+                    frameland::NormalizedRect *handRect = hand->mutable_hand_rect();
+                    handRect->set_x_center(hand_rect.x_center());
+                    handRect->set_y_center(hand_rect.y_center());
+                    handRect->set_height(hand_rect.height());
+                    handRect->set_width(hand_rect.width());
+                    handRect->set_rect_id(hand_rect.rect_id());
+
+
+                    // NOTE: Disabled until to implement the calculator CountingNormalizedPalmRectVectorSizeCalculator
+                    // const auto &palm_rect = multi_palm_rects[hand_id];
+                    // frameland::NormalizedRect *palmRect = hand->mutable_palm_rect();
+                    // palmRect->set_x_center(palm_rect.x_center());
+                    // palmRect->set_y_center(palm_rect.y_center());
+                    // palmRect->set_height(palm_rect.height());
+                    // palmRect->set_width(palm_rect.width());
+                    // palmRect->set_rect_id(palm_rect.rect_id());
+
+
                     for (int i = 0; i < single_hand_landmarks.landmark_size(); ++i)
                     {
                         const auto &mediapipeLandmark = single_hand_landmarks.landmark(i);
@@ -173,7 +230,7 @@ namespace frameland::mediapipe::landpack
 
                 Hands *replyHands = reply->mutable_hands();
                 replyHands->CopyFrom(hands);
-                
+
                 hand_id++;
             }
 

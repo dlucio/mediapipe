@@ -17,8 +17,20 @@ output_stream: "landmarks"
 # (std::vector<ClassificationList>)
 output_stream: "handedness"
 
+# Count how many hands were detected.
+# This output is used to avoid the program freezes
 # (int)
 output_stream: "HAND_COUNT_FROM_LANDMARKS:hand_count"
+
+# Extra outputs (for debugging, for instance).
+# Detected palms. (std::vector<Detection>)
+output_stream: "multi_palm_detections"
+# Regions of interest calculated based on landmarks.
+# (std::vector<NormalizedRect>)
+output_stream: "multi_hand_rects"
+# Regions of interest calculated based on palm detections.
+# (std::vector<NormalizedRect>)
+output_stream: "multi_palm_rects"
 
 
 # Generates side packet cotaining max number of hands to detect/track.
