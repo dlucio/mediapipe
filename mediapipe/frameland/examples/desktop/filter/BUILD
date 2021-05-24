@@ -4,7 +4,7 @@ cc_binary(
     name = "text_processing_server",
     srcs = ["text_processing/text_processing_server.cc"],
     deps = [
-        "//mediapipe/frameland/component:frameland_mediapipe_service",
+        "//mediapipe/frameland/packages/textpack:frameland_textpack",
     ]
 )
 
