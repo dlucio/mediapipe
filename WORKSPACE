@@ -71,11 +71,12 @@ all_content = """filegroup(name = "all", srcs = glob(["**"]), visibility = ["//v
 #   rules_cc and rules_foreign_cc
 # ---------------------------------------------------
 http_archive(
+    # Release v1.38.0
     name = "com_github_grpc_grpc",
     urls = [
-        "https://github.com/grpc/grpc/archive/3e53dbe8213137d2c731ecd4d88ebd2948941d75.tar.gz",
+        "https://github.com/grpc/grpc/archive/54dc182082db941aa67c7c3f93ad858c99a16d7d.tar.gz",
     ],
-    strip_prefix = "grpc-3e53dbe8213137d2c731ecd4d88ebd2948941d75",
+    strip_prefix = "grpc-54dc182082db941aa67c7c3f93ad858c99a16d7d",
 )
 
 load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
