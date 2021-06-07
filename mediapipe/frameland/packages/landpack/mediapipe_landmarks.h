@@ -37,12 +37,26 @@ public:
         // LOG(INFO) << "Start grabbing and processing frames.";
 
         cv::Mat camera_frame;
-        cv::cvtColor(camera_frame_raw, camera_frame, cv::COLOR_BGR2RGB);
-        // cv::flip(camera_frame, camera_frame, /*flipcode=HORIZONTAL*/ 1);
+        // cv::flip(camera_frame_raw, camera_frame_raw, /*flipcode=HORIZONTAL*/ 1);
+        camera_frame_raw.copyTo(camera_frame);
 
+        ::mediapipe::ImageFormat_Format imageFormat;
+        switch (camera_frame_raw.channels())
+        {
+        case 3:
+            imageFormat = ::mediapipe::ImageFormat::SRGB;
+            break;
+        case 4:
+            imageFormat = ::mediapipe::ImageFormat::SRGBA;
+            break;
+        
+        default:
+            break;
+        } 
+        
         // Wrap Mat into an ImageFrame.
         auto input_frame = absl::make_unique<::mediapipe::ImageFrame>(
-            ::mediapipe::ImageFormat::SRGB, camera_frame.cols, camera_frame.rows,
+            imageFormat, camera_frame.cols, camera_frame.rows,
             ::mediapipe::ImageFrame::kDefaultAlignmentBoundary);
         cv::Mat input_frame_mat = ::mediapipe::formats::MatView(input_frame.get());
         camera_frame.copyTo(input_frame_mat);
@@ -65,7 +79,6 @@ public:
 
         // Convert back to opencv for display or saving.
         cv::Mat output_frame_mat = ::mediapipe::formats::MatView(&output_frame_mat_view);
-        cv::cvtColor(output_frame_mat, output_frame_mat, cv::COLOR_RGB2BGR);
         output_frame_mat.copyTo(camera_frame_raw);
 
         return absl::Status();

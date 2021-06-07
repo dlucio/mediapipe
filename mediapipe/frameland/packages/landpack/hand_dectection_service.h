@@ -103,7 +103,7 @@ public:
 protected:
     absl::Status Setup(std::string calculator_graph_config_file)
     {
-        MediaPipeLandmarks::Setup(calculator_graph_config_file, false);
+        LOG(INFO) << MediaPipeLandmarks::Setup(calculator_graph_config_file, false);
 
         ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller poller,
                         _graph.AddOutputStreamPoller(kHandednessOutputStream));
@@ -225,13 +225,14 @@ namespace frameland::mediapipe::landpack
                         landmark->set_y(mediapipeLandmark.y());
                         landmark->set_z(mediapipeLandmark.z());
                     }
+                    
+                    hand_id++;
 
                 }
 
                 Hands *replyHands = reply->mutable_hands();
                 replyHands->CopyFrom(hands);
 
-                hand_id++;
             }
 
 
