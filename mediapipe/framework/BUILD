@@ -225,7 +225,7 @@ cc_library(
         "//mediapipe/framework:stream_handler_cc_proto",
         "//mediapipe/framework/port:any_proto",
         "//mediapipe/framework/port:status",
-        "//mediapipe/framework/tool:options_util",
+        "//mediapipe/framework/tool:options_map",
         "//mediapipe/framework/tool:tag_map",
         "@com_google_absl//absl/memory",
     ],
@@ -473,7 +473,7 @@ cc_library(
         "//mediapipe/framework:calculator_cc_proto",
         "//mediapipe/framework/port:any_proto",
         "//mediapipe/framework/port:logging",
-        "//mediapipe/framework/tool:options_util",
+        "//mediapipe/framework/tool:options_map",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
     ],
@@ -953,6 +953,9 @@ cc_library(
     }) + select({
         "//conditions:default": [],
         "//mediapipe/gpu:disable_gpu": ["MEDIAPIPE_DISABLE_GPU=1"],
+    }) + select({
+        "//conditions:default": [],
+        "//mediapipe/framework/port:disable_opencv": ["MEDIAPIPE_DISABLE_OPENCV=1"],
     }) + select({
         "//conditions:default": [],
         "//mediapipe/framework:disable_rtti_and_exceptions": [
